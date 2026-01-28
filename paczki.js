@@ -1,7 +1,5 @@
 (function() {
     const k = { spear: 1, sword: 1, archer: 1, axe: 1, spy: 2, light: 4, marcher: 4, heavy: 4, ram: 5, catapult: 5, snob: 100 };
-    
-    // Pobieranie aktualnego rozmiaru paczki
     const getR = () => parseInt(localStorage.getItem('gemini_paczka_size')) || 200;
 
     window.wykonajKorekte = () => {
@@ -38,12 +36,14 @@
             }
         }
 
-        let panel = document.getElementById('gemini-info');
-        if (!panel) {
-            panel = document.createElement('div'); panel.id = 'gemini-info';
-            panel.style = "background:#dfcca6;border:2px solid #7d510f;padding:10px;margin:5px 0;text-align:center;border-radius:5px;font-weight:bold;";
-            o.parentElement.parentElement.prepend(panel);
-        }
+        // Usuwamy stary panel informacyjny przed dodaniem nowego, aby uniknąć dublowania pasków
+        const oldPanel = document.getElementById('gemini-info');
+        if (oldPanel) oldPanel.remove();
+
+        const panel = document.createElement('div'); 
+        panel.id = 'gemini-info';
+        panel.style = "background:#dfcca6;border:2px solid #7d510f;padding:10px;margin:5px 0;text-align:center;border-radius:5px;font-weight:bold;";
+        o.parentElement.parentElement.prepend(panel);
         panel.innerHTML = `WYNIK: ${suma - (suma % rozmiar)} | PACZEK: ${(suma - (suma % rozmiar)) / rozmiar}`;
     };
 
@@ -53,11 +53,10 @@
         
         setInterval(() => {
             const btn = document.querySelector('button[id*="generate"]');
+            // SPRAWDZENIE: czy przycisk już istnieje?
             if (btn && !document.getElementById('gemini-set-btn')) {
-                // Dodanie listenera do Generuj
-                btn.addEventListener('click', () => setTimeout(window.wykonajKorekte, 500));
+                btn.onclick = () => setTimeout(window.wykonajKorekte, 500);
                 
-                // Tworzenie przycisku ustawień
                 const setBtn = document.createElement('button');
                 setBtn.id = 'gemini-set-btn';
                 setBtn.innerText = `USTAW PACZKĘ (${getR()})`;
@@ -65,7 +64,7 @@
                 setBtn.style.marginLeft = '5px';
                 setBtn.onclick = (e) => {
                     e.preventDefault();
-                    let v = prompt("Rozmiar paczki (ludność):", getR());
+                    let v = prompt("Rozmiar paczki:", getR());
                     if (v) { 
                         localStorage.setItem('gemini_paczka_size', v); 
                         setBtn.innerText = `USTAW PACZKĘ (${v})`;
