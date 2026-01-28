@@ -1,5 +1,7 @@
 (function() {
     const k = { spear: 1, sword: 1, archer: 1, axe: 1, spy: 2, light: 4, marcher: 4, heavy: 4, ram: 5, catapult: 5, snob: 100 };
+    
+    // Pobieranie aktualnego rozmiaru paczki
     const getR = () => parseInt(localStorage.getItem('gemini_paczka_size')) || 200;
 
     window.wykonajKorekte = () => {
@@ -9,11 +11,14 @@
         const rozmiar = getR();
         let suma = 0;
         const wiersze = Array.from(o.querySelectorAll('tr'));
-        const naglowki = Array.from(document.querySelectorAll('thead img[src*="unit_"]')).map(img => img.src.match(/unit_(\w+)\.png/)[1]);
+        const naglowki = Array.from(document.querySelectorAll('thead img[src*="unit_"]')).map(img => {
+            const m = img.src.match(/unit_(\w+)\.png/);
+            return m ? m[1] : null;
+        });
 
         wiersze.forEach(row => {
             naglowki.forEach((unit, idx) => {
-                suma += (parseInt(row.cells[idx + 1]?.innerText) || 0) * (k[unit] || 0);
+                if (unit) suma += (parseInt(row.cells[idx + 1]?.innerText) || 0) * (k[unit] || 0);
             });
         });
 
@@ -22,7 +27,7 @@
             for (let i = wiersze.length - 1; i >= 0 && nadmiar > 0; i--) {
                 for (let j = naglowki.length - 1; j >= 0 && nadmiar > 0; j--) {
                     const unit = naglowki[j], koszt = k[unit] || 0;
-                    if (koszt === 0) continue;
+                    if (!unit || koszt === 0) continue;
                     let cell = wiersze[i].cells[j + 1], val = parseInt(cell.innerText) || 0;
                     if (val > 0) {
                         const doZabrania = Math.min(val, Math.ceil(nadmiar / koszt));
@@ -42,38 +47,32 @@
         panel.innerHTML = `WYNIK: ${suma - (suma % rozmiar)} | PACZEK: ${(suma - (suma % rozmiar)) / rozmiar}`;
     };
 
-    // FUNKCJA DODAJE POLE DO USTAWIEŃ
-    function injectPaczkaField() {
-        const settingsTable = document.querySelector('.popup_helper table');
-        if (settingsTable && !document.getElementById('paczka-row')) {
-            const row = settingsTable.insertRow(-1);
-            row.id = 'paczka-row';
-            row.innerHTML = `<td>Rozmiar paczki:</td><td><input type="number" id="g-p-val" value="${getR()}" style="width: 50px;"></td>`;
-            
-            const saveBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Zapisz');
-            if (saveBtn) {
-                saveBtn.addEventListener('click', () => {
-                    const newVal = document.getElementById('g-p-val').value;
-                    localStorage.setItem('gemini_paczka_size', newVal);
-                });
-            }
-        }
-    }
-
     if (!document.getElementById('gemini-monitor')) {
         const monitor = document.createElement('div'); monitor.id = 'gemini-monitor';
         document.body.appendChild(monitor);
         
         setInterval(() => {
             const btn = document.querySelector('button[id*="generate"]');
-            if (btn && !btn.dataset.hooked) {
+            if (btn && !document.getElementById('gemini-set-btn')) {
+                // Dodanie listenera do Generuj
                 btn.addEventListener('click', () => setTimeout(window.wykonajKorekte, 500));
-                btn.dataset.hooked = "1";
+                
+                // Tworzenie przycisku ustawień
+                const setBtn = document.createElement('button');
+                setBtn.id = 'gemini-set-btn';
+                setBtn.innerText = `USTAW PACZKĘ (${getR()})`;
+                setBtn.className = 'btn';
+                setBtn.style.marginLeft = '5px';
+                setBtn.onclick = (e) => {
+                    e.preventDefault();
+                    let v = prompt("Rozmiar paczki (ludność):", getR());
+                    if (v) { 
+                        localStorage.setItem('gemini_paczka_size', v); 
+                        setBtn.innerText = `USTAW PACZKĘ (${v})`;
+                    }
+                };
+                btn.after(setBtn);
             }
-            // CIĄGŁA PRÓBA WSTRZYKNIĘCIA POLA GDY OKNO JEST OTWARTE
-            if (document.querySelector('.popup_helper')) {
-                injectPaczkaField();
-            }
-        }, 500);
+        }, 1000);
     }
 })();
