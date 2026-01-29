@@ -1,5 +1,7 @@
 (function() {
     const k = { spear: 1, sword: 1, archer: 1, axe: 1, spy: 2, light: 4, marcher: 4, heavy: 4, ram: 5, catapult: 5, snob: 100 };
+    
+    // Pobieranie rozmiaru paczki z pamięci
     const getR = () => parseInt(localStorage.getItem('gemini_paczka_size')) || 200;
 
     window.wykonajKorekte = () => {
@@ -14,12 +16,14 @@
             return m ? m[1] : null;
         });
 
+        // 1. Liczenie sumy
         wiersze.forEach(row => {
             naglowki.forEach((unit, idx) => {
                 if (unit) suma += (parseInt(row.cells[idx + 1]?.innerText) || 0) * (k[unit] || 0);
             });
         });
 
+        // 2. Korekta nadmiaru
         let nadmiar = suma % rozmiar;
         if (nadmiar > 0) {
             for (let i = wiersze.length - 1; i >= 0 && nadmiar > 0; i--) {
@@ -36,7 +40,7 @@
             }
         }
 
-        // Usuwamy stary panel informacyjny przed dodaniem nowego, aby uniknąć dublowania pasków
+        // 3. Wyświetlanie panelu (usuwamy stary, żeby nie było dubli)
         const oldPanel = document.getElementById('gemini-info');
         if (oldPanel) oldPanel.remove();
 
@@ -53,10 +57,13 @@
         
         setInterval(() => {
             const btn = document.querySelector('button[id*="generate"]');
-            // SPRAWDZENIE: czy przycisk już istnieje?
+            
+            // Zabezpieczenie przed dublowaniem przycisku (szukamy po ID)
             if (btn && !document.getElementById('gemini-set-btn')) {
-                btn.onclick = () => setTimeout(window.wykonajKorekte, 500);
+                // Podpięcie korekty pod przycisk Generuj
+                btn.addEventListener('click', () => setTimeout(window.wykonajKorekte, 500));
                 
+                // Tworzenie przycisku Ustaw Paczkę
                 const setBtn = document.createElement('button');
                 setBtn.id = 'gemini-set-btn';
                 setBtn.innerText = `USTAW PACZKĘ (${getR()})`;
@@ -64,7 +71,7 @@
                 setBtn.style.marginLeft = '5px';
                 setBtn.onclick = (e) => {
                     e.preventDefault();
-                    let v = prompt("Rozmiar paczki:", getR());
+                    let v = prompt("Rozmiar paczki (ludność):", getR());
                     if (v) { 
                         localStorage.setItem('gemini_paczka_size', v); 
                         setBtn.innerText = `USTAW PACZKĘ (${v})`;
