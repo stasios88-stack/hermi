@@ -5,78 +5,126 @@
     const getR = () => parseInt(localStorage.getItem('gemini_paczka_size')) || 200;
 
     window.wykonajKorekte = () => {
-        const o = document.querySelector('tbody[id$="output"]');
-        if (!o) return;
+        const o = $('tbody[id$="output"]');
+        if (!o.length) return;
         
         const rozmiar = getR();
+        
+        // 1. Mapowanie kolumn (Inteligentne wykrywanie, gdzie jest jaka jednostka)
+        const colMap = {};
+        // Szukamy wiersza nagłówka, który zawiera obrazki jednostek
+        const headerRow = $('thead tr').filter((i, e) => $(e).find('img[src*="unit_"]').length > 0).last();
+        
+        headerRow.find('th, td').each(function(idx) {
+            const img = $(this).find('img[src*="unit_"]');
+            if (img.length) {
+                const uName = img.attr('src').match(/unit_(\w+)\.png/)[1];
+                colMap[uName] = idx;
+            }
+        });
+
+        // 2. Liczenie aktualnej sumy
         let suma = 0;
-        const wiersze = Array.from(o.querySelectorAll('tr'));
-        const naglowki = Array.from(document.querySelectorAll('thead img[src*="unit_"]')).map(img => {
-            const m = img.src.match(/unit_(\w+)\.png/);
-            return m ? m[1] : null;
-        });
-
-        // 1. Liczenie sumy
-        wiersze.forEach(row => {
-            naglowki.forEach((unit, idx) => {
-                if (unit) suma += (parseInt(row.cells[idx + 1]?.innerText) || 0) * (k[unit] || 0);
-            });
-        });
-
-        // 2. Korekta nadmiaru
-        let nadmiar = suma % rozmiar;
-        if (nadmiar > 0) {
-            for (let i = wiersze.length - 1; i >= 0 && nadmiar > 0; i--) {
-                for (let j = naglowki.length - 1; j >= 0 && nadmiar > 0; j--) {
-                    const unit = naglowki[j], koszt = k[unit] || 0;
-                    if (!unit || koszt === 0) continue;
-                    let cell = wiersze[i].cells[j + 1], val = parseInt(cell.innerText) || 0;
-                    if (val > 0) {
-                        const doZabrania = Math.min(val, Math.ceil(nadmiar / koszt));
-                        val -= doZabrania; nadmiar -= (doZabrania * koszt);
-                        cell.innerText = val; cell.style.color = "red"; cell.style.fontWeight = "bold";
-                    }
+        const wiersze = o.find('tr');
+        
+        wiersze.each(function() {
+            const row = $(this);
+            for (const [unit, koszt] of Object.entries(k)) {
+                if (colMap[unit] !== undefined) {
+                    const cell = row.find('td').eq(colMap[unit]);
+                    const val = parseInt(cell.text()) || 0;
+                    suma += val * koszt;
                 }
             }
+        });
+
+        // 3. Korekta nadmiaru (Odejmowanie)
+        let nadmiar = suma % rozmiar;
+        
+        if (nadmiar > 0) {
+            // Idziemy od dołu tabeli
+            $(wiersze.get().reverse()).each(function() {
+                const row = $(this);
+                if (nadmiar <= 0) return false; // Przerwij, jeśli już wyrównano
+
+                // Idziemy po jednostkach (od najcięższych/ostatnich w mapie, żeby nie psuć proporcji, albo po prostu po kolei)
+                // Tutaj iterujemy po mapie kolumn
+                const unitsInOrder = Object.keys(colMap).reverse(); // Od prawej do lewej (zazwyczaj Ciężka jest po prawej)
+                
+                for (const unit of unitsInOrder) {
+                    if (nadmiar <= 0) break;
+                    
+                    const koszt = k[unit];
+                    const colIdx = colMap[unit];
+                    const cell = row.find('td').eq(colIdx);
+                    let val = parseInt(cell.text()) || 0;
+
+                    if (val > 0 && koszt > 0) {
+                        // Ile sztuk tej jednostki musimy zabrać, żeby zbić nadmiar?
+                        // Math.ceil, bo np. jak nadmiar to 1, a jednostka to CK (4), musimy zabrać 1 CK (zdejmując 4 pop)
+                        const doZabrania = Math.min(val, Math.ceil(nadmiar / koszt));
+                        
+                        val -= doZabrania;
+                        nadmiar -= (doZabrania * koszt); // Nadmiar może zejść poniżej zera (to OK, lepiej wysłać 197 niż 201)
+                        
+                        cell.text(val).css({'color': 'red', 'font-weight': 'bold', 'background': '#ffcccc'});
+                    }
+                }
+            });
         }
 
-        // 3. Wyświetlanie panelu (usuwamy stary, żeby nie było dubli)
-        const oldPanel = document.getElementById('gemini-info');
-        if (oldPanel) oldPanel.remove();
-
-        const panel = document.createElement('div'); 
-        panel.id = 'gemini-info';
-        panel.style = "background:#dfcca6;border:2px solid #7d510f;padding:10px;margin:5px 0;text-align:center;border-radius:5px;font-weight:bold;";
-        o.parentElement.parentElement.prepend(panel);
-        panel.innerHTML = `WYNIK: ${suma - (suma % rozmiar)} | PACZEK: ${(suma - (suma % rozmiar)) / rozmiar}`;
+        // 4. Wyświetlanie panelu
+        $('#gemini-info').remove();
+        
+        // Obliczamy ostateczną sumę po korekcie (dla wyświetlenia)
+        // Uwaga: Jeśli 'nadmiar' zeszedł na minus (np. -2), to znaczy że odjęliśmy trochę za dużo, 
+        // ale to bezpieczniejsze niż wysłanie za dużo.
+        // Wyświetlana suma to: (PoczątkowaSuma - (PoczątkowyNadmiar - KońcowyNadmiar))
+        // Ale prościej: po prostu policzmy paczki z matematyki, bo tabela jest już poprawiona.
+        const idealnaSuma = suma - (suma % rozmiar); 
+        // Jeśli nadmiar jest ujemny (np. usunęliśmy 1 CK za dużo), to realna suma w tabeli jest mniejsza niż idealna.
+        // Ale zostawmy w panelu "WYNIK" jako cel, w który celowaliśmy.
+        
+        const panel = $('<div id="gemini-info"></div>')
+            .css({
+                background: '#dfcca6',
+                border: '2px solid #7d510f',
+                padding: '10px',
+                marginTop: '5px',
+                textAlign: 'center',
+                fontWeight: 'bold',
+                borderRadius: '5px'
+            })
+            .html(`
+                CEL: <span style="color:#000">${idealnaSuma}</span> | 
+                PACZEK: <span style="color:green;font-size:16px">${(idealnaSuma / rozmiar)}</span>
+            `);
+            
+        o.parent().parent().before(panel);
     };
 
     if (!document.getElementById('gemini-monitor')) {
-        const monitor = document.createElement('div'); monitor.id = 'gemini-monitor';
-        document.body.appendChild(monitor);
+        $('body').append('<div id="gemini-monitor"></div>');
         
         setInterval(() => {
-            const btn = document.querySelector('button[id*="generate"]');
+            const btn = $('button[id*="generate"]');
             
-            // Zabezpieczenie przed dublowaniem przycisku (szukamy po ID)
-            if (btn && !document.getElementById('gemini-set-btn')) {
-                // Podpięcie korekty pod przycisk Generuj
-                btn.addEventListener('click', () => setTimeout(window.wykonajKorekte, 500));
+            if (btn.length && !$('#gemini-set-btn').length) {
+                // Podpięcie korekty (z lekkim opóźnieniem, żeby tabela zdążyła się narysować)
+                btn.on('click', () => setTimeout(window.wykonajKorekte, 800));
                 
-                // Tworzenie przycisku Ustaw Paczkę
-                const setBtn = document.createElement('button');
-                setBtn.id = 'gemini-set-btn';
-                setBtn.innerText = `USTAW PACZKĘ (${getR()})`;
-                setBtn.className = 'btn';
-                setBtn.style.marginLeft = '5px';
-                setBtn.onclick = (e) => {
-                    e.preventDefault();
-                    let v = prompt("Rozmiar paczki (ludność):", getR());
-                    if (v) { 
-                        localStorage.setItem('gemini_paczka_size', v); 
-                        setBtn.innerText = `USTAW PACZKĘ (${v})`;
-                    }
-                };
+                const setBtn = $('<button id="gemini-set-btn" class="btn"></button>')
+                    .text(`USTAW PACZKĘ (${getR()})`)
+                    .css({marginLeft: '5px'})
+                    .on('click', (e) => {
+                        e.preventDefault();
+                        let v = prompt("Rozmiar paczki (ludność):", getR());
+                        if (v) { 
+                            localStorage.setItem('gemini_paczka_size', v); 
+                            setBtn.text(`USTAW PACZKĘ (${v})`);
+                        }
+                    });
+                
                 btn.after(setBtn);
             }
         }, 1000);
