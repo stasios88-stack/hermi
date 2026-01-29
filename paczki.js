@@ -1,117 +1,144 @@
 (function() {
     const k = { spear: 1, sword: 1, archer: 1, axe: 1, spy: 2, light: 4, marcher: 4, heavy: 4, ram: 5, catapult: 5, snob: 100 };
     
-    // Pobieranie rozmiaru paczki z pamięci
     const getR = () => parseInt(localStorage.getItem('gemini_paczka_size')) || 200;
 
     window.wykonajKorekte = () => {
-        const o = $('tbody[id$="output"]');
-        if (!o.length) return;
+        // Szukamy ciała tabeli z wynikami
+        const tbody = $('tbody[id$="output"]');
+        if (!tbody.length) return;
         
+        // Znajdujemy całą tabelę (rodzica)
+        const table = tbody.closest('table');
         const rozmiar = getR();
         
-        // 1. Mapowanie kolumn (Inteligentne wykrywanie, gdzie jest jaka jednostka)
+        // --- 1. AGRESYWNE MAPOWANIE KOLUMN ---
+        // Zamiast szukać konkretnego wiersza, szukamy wszystkich komórek w nagłówku, które mają obrazek jednostki
         const colMap = {};
-        // Szukamy wiersza nagłówka, który zawiera obrazki jednostek
-        const headerRow = $('thead tr').filter((i, e) => $(e).find('img[src*="unit_"]').length > 0).last();
         
-        headerRow.find('th, td').each(function(idx) {
+        // Szukamy w thead (nagłówku) komórek th lub td zawierających img z "unit_"
+        table.find('thead tr').find('th, td').each(function() {
             const img = $(this).find('img[src*="unit_"]');
             if (img.length) {
-                const uName = img.attr('src').match(/unit_(\w+)\.png/)[1];
-                colMap[uName] = idx;
+                // Pobieramy nazwę jednostki z src
+                const match = img.attr('src').match(/unit_(\w+)\.png/);
+                if (match) {
+                    // Kluczowe: pobieramy indeks tej komórki względem wiersza
+                    // To nam powie, że np. 'spear' to kolumna nr 1
+                    colMap[match[1]] = $(this).index();
+                }
             }
         });
 
-        // 2. Liczenie aktualnej sumy
+        // ZABEZPIECZENIE: Jeśli mapa jest pusta (dziwny błąd), zakładamy standardowy układ
+        if (Object.keys(colMap).length === 0) {
+            // Standardowy układ Hermitowskiego (może się różnić, ale to fallback)
+            colMap['spear'] = 1; colMap['sword'] = 2; colMap['axe'] = 3; 
+            colMap['spy'] = 4; colMap['light'] = 5; colMap['heavy'] = 6; 
+            colMap['ram'] = 7; colMap['catapult'] = 8; colMap['snob'] = 9;
+        }
+
+        // --- 2. LICZENIE SUMY ---
         let suma = 0;
-        const wiersze = o.find('tr');
+        const wiersze = tbody.find('tr');
         
         wiersze.each(function() {
             const row = $(this);
+            // Iterujemy po wszystkich jednostkach jakie znamy
             for (const [unit, koszt] of Object.entries(k)) {
-                if (colMap[unit] !== undefined) {
-                    const cell = row.find('td').eq(colMap[unit]);
-                    const val = parseInt(cell.text()) || 0;
+                // Sprawdzamy, czy w ogóle mamy taką kolumnę w tabeli
+                const colIdx = colMap[unit];
+                if (colIdx !== undefined) {
+                    // Pobieramy komórkę o tym indeksie
+                    const cell = row.find('td').eq(colIdx);
+                    // Czyścimy tekst ze spacji i innych śmieci, bierzemy liczbę
+                    const val = parseInt(cell.text().replace(/\D/g, '')) || 0;
                     suma += val * koszt;
                 }
             }
         });
 
-        // 3. Korekta nadmiaru (Odejmowanie)
+        // --- 3. KOREKTA (ODEJMOWANIE) ---
         let nadmiar = suma % rozmiar;
         
         if (nadmiar > 0) {
-            // Idziemy od dołu tabeli
+            // Idziemy od ostatniego wiersza w górę
             $(wiersze.get().reverse()).each(function() {
                 const row = $(this);
-                if (nadmiar <= 0) return false; // Przerwij, jeśli już wyrównano
+                if (nadmiar <= 0) return false; 
 
-                // Idziemy po jednostkach (od najcięższych/ostatnich w mapie, żeby nie psuć proporcji, albo po prostu po kolei)
-                // Tutaj iterujemy po mapie kolumn
-                const unitsInOrder = Object.keys(colMap).reverse(); // Od prawej do lewej (zazwyczaj Ciężka jest po prawej)
+                // Idziemy po kolumnach (jednostkach)
+                // Odwracamy kolejność jednostek (żeby zacząć np. od ciężkiej kawalerii, jeśli jest po prawej)
+                const knownUnits = Object.keys(colMap).reverse();
                 
-                for (const unit of unitsInOrder) {
+                for (const unit of knownUnits) {
                     if (nadmiar <= 0) break;
                     
                     const koszt = k[unit];
+                    if (!koszt) continue;
+
                     const colIdx = colMap[unit];
                     const cell = row.find('td').eq(colIdx);
-                    let val = parseInt(cell.text()) || 0;
+                    let val = parseInt(cell.text().replace(/\D/g, '')) || 0;
 
-                    if (val > 0 && koszt > 0) {
-                        // Ile sztuk tej jednostki musimy zabrać, żeby zbić nadmiar?
-                        // Math.ceil, bo np. jak nadmiar to 1, a jednostka to CK (4), musimy zabrać 1 CK (zdejmując 4 pop)
+                    if (val > 0) {
+                        // Obliczamy ile sztuk zabrać
                         const doZabrania = Math.min(val, Math.ceil(nadmiar / koszt));
                         
+                        // Wykonujemy odejmowanie
                         val -= doZabrania;
-                        nadmiar -= (doZabrania * koszt); // Nadmiar może zejść poniżej zera (to OK, lepiej wysłać 197 niż 201)
+                        nadmiar -= (doZabrania * koszt);
                         
-                        cell.text(val).css({'color': 'red', 'font-weight': 'bold', 'background': '#ffcccc'});
+                        // Aktualizujemy tabelę
+                        cell.text(val).css({
+                            'color': 'red', 
+                            'font-weight': 'bold', 
+                            'background-color': '#ffcccc' // Jasnoczerwone tło dla widoczności
+                        });
                     }
                 }
             });
         }
 
-        // 4. Wyświetlanie panelu
+        // --- 4. RYSOWANIE PANELU ---
         $('#gemini-info').remove();
         
-        // Obliczamy ostateczną sumę po korekcie (dla wyświetlenia)
-        // Uwaga: Jeśli 'nadmiar' zeszedł na minus (np. -2), to znaczy że odjęliśmy trochę za dużo, 
-        // ale to bezpieczniejsze niż wysłanie za dużo.
-        // Wyświetlana suma to: (PoczątkowaSuma - (PoczątkowyNadmiar - KońcowyNadmiar))
-        // Ale prościej: po prostu policzmy paczki z matematyki, bo tabela jest już poprawiona.
-        const idealnaSuma = suma - (suma % rozmiar); 
-        // Jeśli nadmiar jest ujemny (np. usunęliśmy 1 CK za dużo), to realna suma w tabeli jest mniejsza niż idealna.
-        // Ale zostawmy w panelu "WYNIK" jako cel, w który celowaliśmy.
+        // Obliczamy ile powinno być idealnie
+        const idealnaSuma = suma - (suma % rozmiar);
         
         const panel = $('<div id="gemini-info"></div>')
             .css({
                 background: '#dfcca6',
                 border: '2px solid #7d510f',
-                padding: '10px',
+                padding: '8px',
                 marginTop: '5px',
                 textAlign: 'center',
                 fontWeight: 'bold',
-                borderRadius: '5px'
+                borderRadius: '4px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.3)'
             })
             .html(`
-                CEL: <span style="color:#000">${idealnaSuma}</span> | 
-                PACZEK: <span style="color:green;font-size:16px">${(idealnaSuma / rozmiar)}</span>
+                <div style="font-size:11px;color:#555">SUMA PRZED KOREKTĄ: ${suma}</div>
+                <div style="font-size:16px;margin-top:2px;">
+                    WYNIK KOŃCOWY: <span style="color:#000">${idealnaSuma}</span> | 
+                    PACZEK: <span style="color:green;font-size:18px">${(idealnaSuma / rozmiar).toFixed(0)}</span>
+                </div>
             `);
             
-        o.parent().parent().before(panel);
+        tbody.parent().parent().before(panel);
     };
 
+    // --- 5. INITIALIZER ---
     if (!document.getElementById('gemini-monitor')) {
         $('body').append('<div id="gemini-monitor"></div>');
         
         setInterval(() => {
             const btn = $('button[id*="generate"]');
             
+            // Jeśli jest przycisk Generuj, a nie ma naszego przycisku
             if (btn.length && !$('#gemini-set-btn').length) {
-                // Podpięcie korekty (z lekkim opóźnieniem, żeby tabela zdążyła się narysować)
-                btn.on('click', () => setTimeout(window.wykonajKorekte, 800));
+                // Podpinamy się pod kliknięcie
+                btn.off('click.gemini').on('click.gemini', () => setTimeout(window.wykonajKorekte, 800));
                 
                 const setBtn = $('<button id="gemini-set-btn" class="btn"></button>')
                     .text(`USTAW PACZKĘ (${getR()})`)
