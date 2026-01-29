@@ -1,133 +1,126 @@
 (function() {
-    // Cennik jednostek (ludność)
-    const k = { spear: 1, sword: 1, archer: 1, axe: 1, spy: 2, light: 4, marcher: 4, heavy: 4, ram: 5, catapult: 5, snob: 100 };
+    // Cennik (wagi) jednostek
+    const koszty = { spear: 1, sword: 1, archer: 1, axe: 1, spy: 2, light: 4, marcher: 4, heavy: 4, ram: 5, catapult: 5, snob: 100 };
     
-    // Pobieranie rozmiaru paczki z pamięci
+    // Pobieranie ustawionej wielkości paczki
     const getR = () => parseInt(localStorage.getItem('gemini_paczka_size')) || 200;
 
     window.wykonajKorekte = () => {
-        // Szukamy tabeli z wynikami (output)
-        const o = $('tbody[id$="output"]');
-        if (!o.length) return;
-        
+        // Znajdujemy tabelę wyników
+        const tabela = $('tbody[id$="output"]');
+        if (!tabela.length) return; // Jeśli nie ma tabeli, kończymy
+
         const rozmiar = getR();
-        let suma = 0;
-        
-        // --- 1. MAPOWANIE KOLUMN (NAPRAWIONE) ---
-        // Szukamy wiersza w nagłówku, który zawiera obrazki jednostek. 
-        // Bierzemy pierwszy pasujący, co jest bezpieczniejsze przy Twoim widoku.
+        let sumaTotal = 0;
         let colMap = {};
-        const headerRow = $('thead tr').filter((i, e) => $(e).find('img[src*="unit_"]').length > 0).first();
-        
-        headerRow.find('th, td').each(function(idx) {
+
+        // KROK 1: MAPOWANIE KOLUMN (Metoda "Snajperska")
+        // Szukamy w całym nagłówku (thead) komórek, które mają w sobie obrazek jednostki
+        tabela.closest('table').find('thead th, thead td').each(function() {
             const img = $(this).find('img[src*="unit_"]');
             if (img.length) {
-                // Wyciągamy nazwę jednostki z pliku (np. unit_spear.png -> spear)
-                const m = img.attr('src').match(/unit_(\w+)\.png/);
-                if (m) colMap[m[1]] = idx;
-            }
-        });
-
-        // --- 2. LICZENIE SUMY ---
-        const wiersze = o.find('tr');
-        
-        wiersze.each(function() {
-            const row = $(this);
-            for (const [unit, koszt] of Object.entries(k)) {
-                if (colMap[unit] !== undefined) {
-                    const cell = row.find('td').eq(colMap[unit]);
-                    // replace(/\D/g, '') usuwa wszystko co nie jest cyfrą (np. nawiasy, spacje)
-                    // Dzięki temu skrypt widzi liczbę nawet jak jest sformatowana
-                    const val = parseInt(cell.text().replace(/\D/g, '')) || 0;
-                    suma += val * koszt;
+                // Wyciągamy nazwę jednostki z linku obrazka (np. "spear")
+                const match = img.attr('src').match(/unit_(\w+)\.png/);
+                if (match) {
+                    const unitName = match[1];
+                    // Zapamiętujemy numer kolumny (index)
+                    colMap[unitName] = $(this).index();
                 }
             }
         });
 
-        // --- 3. KOREKTA (ODEJMOWANIE) ---
-        let nadmiar = suma % rozmiar;
+        // KROK 2: LICZENIE WOJSKA
+        const wiersze = tabela.find('tr');
+        
+        wiersze.each(function() {
+            const row = $(this);
+            for (const [unit, waga] of Object.entries(koszty)) {
+                // Jeśli znaleźliśmy kolumnę dla tej jednostki
+                if (colMap[unit] !== undefined) {
+                    const idx = colMap[unit];
+                    // Pobieramy komórkę o tym numerze
+                    const cell = row.find('td').eq(idx);
+                    // Czyścimy wartość (usuwamy spacje, bierzemy tylko cyfry)
+                    let val = parseInt(cell.text().trim()) || 0;
+                    
+                    sumaTotal += val * waga;
+                }
+            }
+        });
+
+        // KROK 3: KOREKTA (Odejmowanie nadmiaru)
+        let nadmiar = sumaTotal % rozmiar;
         
         if (nadmiar > 0) {
             // Idziemy od dołu tabeli
             $(wiersze.get().reverse()).each(function() {
                 const row = $(this);
-                if (nadmiar <= 0) return false;
+                if (nadmiar <= 0) return false; // Jak już wyrównaliśmy, przerywamy
 
-                // Sprawdzamy jednostki od prawej do lewej (zazwyczaj od cięższych)
-                const unitsInOrder = Object.keys(colMap).reverse();
+                // Sprawdzamy jednostki (odwracamy kolejność, żeby zacząć od prawej strony tabeli)
+                const unitsReverse = Object.keys(colMap).reverse();
                 
-                for (const unit of unitsInOrder) {
+                for (const unit of unitsReverse) {
                     if (nadmiar <= 0) break;
                     
-                    const koszt = k[unit];
-                    const colIdx = colMap[unit];
-                    const cell = row.find('td').eq(colIdx);
-                    let val = parseInt(cell.text().replace(/\D/g, '')) || 0;
+                    const waga = koszty[unit];
+                    const idx = colMap[unit];
+                    const cell = row.find('td').eq(idx);
+                    let val = parseInt(cell.text().trim()) || 0;
 
-                    if (val > 0 && koszt > 0) {
+                    if (val > 0 && waga > 0) {
                         // Obliczamy ile zabrać
-                        const doZabrania = Math.min(val, Math.ceil(nadmiar / koszt));
+                        const doZabrania = Math.min(val, Math.ceil(nadmiar / waga));
                         
                         val -= doZabrania;
-                        nadmiar -= (doZabrania * koszt);
+                        nadmiar -= (doZabrania * waga);
                         
-                        // Zmieniamy wartość w tabeli i kolorujemy na czerwono
-                        cell.text(val).css({'color': 'red', 'font-weight': 'bold', 'background': '#ffcccc'});
+                        // Zmieniamy liczbę w tabeli na czerwoną
+                        cell.text(val).css({'color': 'red', 'fontWeight': 'bold', 'backgroundColor': '#ffcccc'});
                     }
                 }
             });
         }
 
-        // --- 4. PANEL WYNIKU ---
+        // KROK 4: PANEL INFORMACYJNY
         $('#gemini-info').remove();
-        // Obliczamy ile zostało po korekcie
-        const idealnaSuma = suma - (suma % rozmiar); 
-        
+        const wynikKoncowy = sumaTotal - (sumaTotal % rozmiar);
+        const iloscPaczek = (wynikKoncowy / rozmiar).toFixed(1); // Pokazujemy z 1 miejscem po przecinku dla pewności
+
         const panel = $('<div id="gemini-info"></div>')
             .css({
-                background: '#dfcca6',
-                border: '2px solid #7d510f',
-                padding: '10px',
-                marginTop: '5px',
-                textAlign: 'center',
-                fontWeight: 'bold',
-                borderRadius: '5px'
+                background: '#dfcca6', border: '2px solid #7d510f', padding: '10px',
+                marginTop: '5px', textAlign: 'center', fontWeight: 'bold', borderRadius: '5px', fontSize: '14px'
             })
-            .html(`
-                WYNIK: <span style="color:#000">${idealnaSuma}</span> | 
-                PACZEK: <span style="color:green;font-size:16px">${(idealnaSuma / rozmiar)}</span>
-            `);
+            .html(`WYNIK: ${wynikKoncowy} | PACZEK: <span style="color:green;font-size:18px">${Math.floor(iloscPaczek)}</span>`);
             
-        o.parent().parent().before(panel);
+        tabela.parent().parent().before(panel);
     };
 
-    // --- 5. OBSŁUGA PRZYCISKU ---
+    // START SKRYPTU
     if (!document.getElementById('gemini-monitor')) {
         $('body').append('<div id="gemini-monitor"></div>');
         
         setInterval(() => {
             const btn = $('button[id*="generate"]');
             
-            // Dodajemy przycisk tylko jeśli go nie ma
+            // Jeśli jest przycisk Generuj, a nie ma naszego przycisku
             if (btn.length && !$('#gemini-set-btn').length) {
                 
-                // Podpinamy naszą funkcję pod przycisk "Generuj"
-                // Używamy .off() żeby nie dublować kliknięć
+                // Podpinamy naszą korektę pod przycisk Generuj
                 btn.off('click.gemini').on('click.gemini', () => setTimeout(window.wykonajKorekte, 600));
                 
-                // Tworzymy przycisk "USTAW PACZKĘ"
-                const setBtn = $('<button id="gemini-set-btn" class="btn"></button>')
-                    .text(`USTAW PACZKĘ (${getR()})`)
+                // Dodajemy przycisk USTAW PACZKĘ
+                const setBtn = $('<button id="gemini-set-btn" class="btn">USTAW PACZKĘ (' + getR() + ')</button>')
                     .css({marginLeft: '5px'})
                     .on('click', (e) => {
                         e.preventDefault();
-                        let v = prompt("Rozmiar paczki (ludność):", getR());
+                        let v = prompt("Wielkość paczki:", getR());
                         if (v) { 
                             localStorage.setItem('gemini_paczka_size', v); 
-                            setBtn.text(`USTAW PACZKĘ (${v})`);
+                            setBtn.text('USTAW PACZKĘ (' + v + ')');
                         }
                     });
-                
                 btn.after(setBtn);
             }
         }, 1000);
